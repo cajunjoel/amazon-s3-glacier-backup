@@ -17,3 +17,8 @@ Copy the `envvars.sample` file to `envvars` and edit the new file to set the fol
 * WORKING_DIR
 * DIRS
 * PASSWD
+
+# Usage
+`/bin/bash glacier-backup` 
+
+That's it!
