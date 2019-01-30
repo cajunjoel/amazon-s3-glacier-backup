@@ -1,0 +1,27 @@
+# INSTALLATION
+
+# Copy this file to "envvars" and edit the variables as necessary for
+# your system, paths, and password.
+
+# Locate some programs just in case they are different for you
+CMD="/usr/local/bin/glacier-cmd"
+TAR="/bin/tar"
+GPG="/usr/bin/gpg"
+
+# Make some other settings
+DAY=$(date +"%Y%m%d")
+LONGDAY=$(date +"%c")
+
+# Fill this in with the path to the folders to backup
+SOURCE_DIR="/path/to/folders"
+
+# This directory will contain the control files for TAR and temporary space for
+# tarring and encrypting. Do not delete stuff in here!
+WORKING_DIR="/path/to/working/dir"
+
+# Fill this in with an array of subfolders to backup that live in $SOURCE_DIR
+# i.e. /path/to/folders/stuff and /path/to/folders/more-stuff
+DIRS=("stuff" "more-stuff")
+
+# This is a very long password to use with gpg to encrypt your stuff.
+PASSWD=""
