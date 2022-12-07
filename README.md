@@ -60,12 +60,16 @@ with the loss of deletions. (That is, deleted files will persist after a full re
 
 To restore. Download everything from amazon Glacier. Be careful of pricing. For large things, this can get expensive.
 
+```
 $ glacier-cmd inventory [VAULTNAME]
 $ glacier-cmd getarchive [VAULTNAME] [ARCHIVE_ID]
 $ glacier-cmd download [VAULTNAME] [ARCHIVE_ID] > [FILENAME.tgz.pgp]
+```
 
 Then decrypt
 
+
+```
 $ gpg -d --passphrase=$PASSWD Test-FULL.tgz.gpg
 $ gpg -d --passphrase=$PASSWD Test-1.tgz.gpg
 $ gpg -d --passphrase=$PASSWD Test-2.tgz.gpg
@@ -73,6 +77,7 @@ $ gpg -d --passphrase=$PASSWD Test-2.tgz.gpg
 $ tar fxz /mnt/data/Backups/Test-FULL.tgz --listed-incremental=/dev/null
 $ tar fxz /mnt/data/Backups/Test-1.tgz --listed-incremental=/dev/null
 $ tar fxz /mnt/data/Backups/Test-2.tgz --listed-incremental=/dev/null
+```
 
 And pray.
 
