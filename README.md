@@ -2,11 +2,15 @@
 
 A script to use Amazon Glacier and tar incremental backups for long term storage of stuff. 
 
+** IMPORTANT NOTE: THE `glacier-cmd` COMMAND USES PYTHON2 AND IS THEREFORE DEPRECATED. THIS PROJECT SHOULD BE CONSIDERED OUT OF DATE.  **
+
 # Requirements
 
 ## glacier-cmd
 Install this from GitHub for your system *and configure* for your Amazon S3 Glacier account.
 https://github.com/uskudnik/amazon-glacier-cmd-interface
+
+
 
 ## GNU Privacy Guard
 Install with apt or yum or whatever
