@@ -1,11 +1,13 @@
-# Set this to something random. Save it in a safe place. 
-# If not set or empty, then your files will not be encrypted.
+# Set this to something random. Save it in a safe place. [Required]
 GPG_PASSWORD=
 
-# Which paths do you want to back up? (may be repeated)
-BACKUP_PATH=/path/to/files/dir
-BACKUP_PATH=/path/to/other-files/dir
+# Full path to backup. Do not include filenames.
+# May be repeated more than once. [Required]
+BACKUP_PATH=
+BACKUP_PATH=
 
-# Working directory to store files so we don't run out of disk space
-# must have at least enough space as what you are backing up.
-WORKING_PATH=/path/to/working/dir
+# Working directory to store files. Must have at least enough 
+# space as what you are backing up. [Optional]
+# 
+# Defaults to: /tmp/amazon-s3-glacier-backup
+WORKING_PATH=

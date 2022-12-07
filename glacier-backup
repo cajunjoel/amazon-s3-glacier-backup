@@ -11,15 +11,16 @@
 # Please see the LICENSE file for details.
 
 set -o errexit 
-CONFIGFILE="/opt/glacier-backup/glacier-backup.conf"
+CONFIGFILE="./glacier-backup.conf"
 GLACIER_CMD=`which glacier-cmd`
 TAR_CMD=`which tar`
 GPG_CMD=`which gpg`
+HISTORY_FILE="./logs/history.log"
 PATHS=()
 PWD="$( cd "$(dirname "$0")" ; pwd -P )"
 WORKING_PATH=""
 DRY_RUN=0
-
+DEBUG=0
 
 function parse_config() {
     # Read and Parse the config file
@@ -46,31 +47,40 @@ function parse_config() {
 function validate() {
     # make sure we have glacier-cmd
     if [[ ! -e $GLACIER_CMD ]]; then
-        echo "glacier-cmd not found. Maybe it needs to be installed?"
+        >&2 echo "glacier-cmd not found. Maybe it needs to be installed?"
         exit 2;
     fi
 
     # make sure we have tar and gpg, too
     if [[ ! -e $TAR_CMD ]]; then
-        echo "tar not found. I can't even!"
+        >&2 echo "tar not found. I can't even!"
         exit 2;
     fi
     if [[ ! -e $GPG_CMD ]]; then
-        echo "gpg not found. I would really like to encrypt these backups!"
+        >&2 echo "gpg not found. I would really like to encrypt these backups!"
         exit 2;
     fi
 
     # make sure the listings directory is found
     if [[ -e "$PWD/listings" ]] && [[ ! -w "$PWD/listings" ]]; then
-        echo "Cannot write to $PWD/listings"
+        >&2 echo "Cannot write to $PWD/listings"
         exit 2;
     elif [[ ! -e "$PWD/listings" ]]; then
-        mkdir "$PWD/listings"
+        >&2 mkdir "$PWD/listings"
+    fi
+
+    # make sure the history file is writable
+    if [[ ! -e $HISTORY_FILE ]]; then
+        touch $HISTORY_FILE
+    fi
+    if [[ ! -e $HISTORY_FILE ]] || [[ ! -w $HISTORY_FILE ]]; then
+        >&2 echo "Cannot write to $HISTORY_FILE"
+        exit 2;
     fi
 
     # make sure we have at least one path to backup
     if [[ ${#PATHS[@]} -eq 0 ]]; then
-        echo "Please add one backup PATH to the configuration file."        
+        >&2 echo "Please add one backup PATH to the configuration file."        
         exit 2;
     fi
 
@@ -78,22 +88,28 @@ function validate() {
     for p in ${!PATHS[*]}
     do
         if [[ ! -e ${PATHS[$p]} ]]; then
-            echo "Backup path ${PATHS[$p]} does not exist."
+            >&2 echo "Backup path ${PATHS[$p]} does not exist."
             exit 2;
         fi
     done
 
     # make sure we have a gpg password
     if [[ -z $GPG_PASSWORD ]]; then
-        echo "Please supply a GPG password."
+        >&2 echo "Please supply a GPG password."
         exit 0;
     fi;
 
-    # make sure we have and can write to the WORKING_PATH (empty is ok)
+    # make sure we have a working path
+    if [[ -z $WORKING_PATH ]]; then
+        mkdir "/tmp/amazon-s3-glacier-backup"
+        WORKING_PATH="/tmp/amazon-s3-glacier-backup"
+    fi;
+
+    # make sure we have and can write to the WORKING_PATH
     if [[ ! -z $WORKING_PATH ]]; then
         if [[ ! -e $WORKING_PATH ]] || [[ ! -w $WORKING_PATH ]]; then
-            echo "WORKING_PATH is not found or not writable."
-             exit 0;
+            >&2 echo "WORKING_PATH is not found or not writable."
+            exit 0;
         fi
     fi
 
@@ -107,23 +123,37 @@ function process_file() {
     INCREMENT_FILE="$PWD/listings/$FILENAME.listing"
     INCREMENT_PATH="$PWD/listings"
     VAULT=$(echo "$FILENAME" | sed -e 's/-/_/' -e 's/\(.*\)/\L\1/')
+    LONGDATE=`date "+%c"`
+    DAY=`date "+%Y%m%d-%H%I%S"`
+
     if [[ -z $WORKING_PATH ]]; then
         WORKING_PATH=$INCREMENT_PATH    
     fi
 
     if [ -e $INCREMENT_FILE ]; then
 	    echo "Making an incremental backup of $FILENAME..."
-        DAY=`date +%c`
         BACKUP_FILE="$WORKING_PATH/$FILENAME-$DAY.tgz.gpg"
-        $TAR_CMD fczv - -g "$INCREMENT_FILE" -C "$BASEPATH" "$FILENAME" | $GPG_CMD --symmetric --batch --passphrase=$GPG_PASSWORD -o "$BACKUP_FILE"
+        if [[ $DRY_RUN == 1 ]]; then 
+            echo "SIMULATING COMMAND: $TAR_CMD fczv - -g \"$INCREMENT_FILE\" -C \"$BASEPATH\" \"$FILENAME\" \| $GPG_CMD --symmetric --batch --passphrase=****** -o \"$BACKUP_FILE\""
+        else
+            $TAR_CMD fczv - -g "$INCREMENT_FILE" -C "$BASEPATH" "$FILENAME" | $GPG_CMD --symmetric --batch --passphrase=$GPG_PASSWORD -o "$BACKUP_FILE"
+        fi
     else
 	    echo "Making a full backup of $FILENAME..."
         BACKUP_FILE="$WORKING_PATH/$FILENAME-FULL.tgz.gpg"
-	    $TAR_CMD fczv - -g "$INCREMENT_FILE" -C "$BASEPATH" "$FILENAME" | $GPG_CMD --symmetric --batch --passphrase=$GPG_PASSWORD -o "$BACKUP_FILE"
+        if [[ $DRY_RUN == 1 ]]; then 
+    	    echo "SIMULATING COMMAND: $TAR_CMD fczv - -g \"$INCREMENT_FILE\" -C \"$BASEPATH\" \"$FILENAME\" \| $GPG_CMD --symmetric --batch --passphrase=***** -o \"$BACKUP_FILE\""
+        else
+    	    $TAR_CMD fczv - -g "$INCREMENT_FILE" -C "$BASEPATH" "$FILENAME" | $GPG_CMD --symmetric --batch --passphrase=$GPG_PASSWORD -o "$BACKUP_FILE"
+        fi
     fi		
 
     #Calculate the Tree hash
-    $GLACIER_CMD treehash $BACKUP_FILE
+    if [[ $DRY_RUN == 1 ]]; then 
+        echo "SIMULATING COMMAND: $GLACIER_CMD treehash \"$BACKUP_FILE\""
+    else
+        $GLACIER_CMD treehash "$BACKUP_FILE"
+    fi
 
     # Get the list of vaults at Glacier
     ALL_VAULTS=`glacier-cmd lsvault | grep arn | cut -f 3 -d '|' | sed -e 's:^.*/::' -e 's: ::'`
@@ -132,16 +162,28 @@ function process_file() {
     if [[ ! $ALL_VAULTS == *"$VAULT"* ]]; then
         # It doesn't exist, create it
         echo "Creating vault $VAULT..."
-        $GLACIER_CMD mkvault $VAULT
+        if [[ $DRY_RUN == 1 ]]; then 
+            echo "SIMULATING COMMAND: $GLACIER_CMD mkvault \"$VAULT\""
+        else
+            $GLACIER_CMD mkvault "$VAULT"
+        fi
     fi
 
     # Upload to Glacier
     echo "Sending to Glacier..."
-    $GLACIER_CMD upload $VAULT $BACKUP_FILE --description "$BACKUP_PATH as of `date +%c`"
+    if [[ $DRY_RUN == 1 ]]; then 
+        echo "SIMULATING COMMAND: $GLACIER_CMD --output csv upload \"$VAULT\" \"$BACKUP_FILE\" --description \"$BACKUP_PATH as of $LONGDATE\" \>\> $HISTORY_FILE"
+    else
+        $GLACIER_CMD --output csv upload "$VAULT" "$BACKUP_FILE" --description "$BACKUP_PATH as of $LONGDATE" >> $HISTORY_FILE
+    fi
 
     # Delete backup file
     echo "Deleting backup file..."
-    rm $BACKUP_FILE
+    if [[ $DRY_RUN == 1 ]]; then 
+        echo "SIMULATING COMMAND: rm \"$BACKUP_FILE\""
+    else
+        rm "$BACKUP_FILE"
+    fi
 }
 
 function usage() {
@@ -149,23 +191,26 @@ function usage() {
     echo ""
     echo "Parameters"
     echo "    -s   Simulate. Will print all commands instead of executing."
+    echo "    -d   Debug. Print some more information."
     echo "    -h   Dislpay this information."
     echo ""
 }
 
-# Backup Script!
-while getopts "hs" arg; do
+
+# -------------
+# MAIN SCRIPT
+# -------------
+
+# Process the command line options
+while getopts "hsd" arg; do
     case "$arg" in
         h)  usage ; exit 0 ;;
+        d)  DEBUG=1 ;;
         s)  DRY_RUN=1 ;;
     esac
 done
 
-exit 0;
-
-
-
-
+if [[ $DEBUG -eq 1 ]]; then echo "Starting..."; fi
 parse_config
 
 validate
@@ -176,18 +221,4 @@ do
 done
 
 exit 0;
-
-
-# NOTES
-# To restore:
-#
-# Download everything from amazon Glacier
-#
-# gpg -d --passphrase=$PASSWD FILENAME.tgz.gpg
-# tar fxz /mnt/data/Backups/Test-FULL.tgz --listed-incremental=/dev/null
-# tar fxz /mnt/data/Backups/Test-1.tgz --listed-incremental=/dev/null
-# tar fxz /mnt/data/Backups/Test-2.tgz --listed-incremental=/dev/null
-# etc.
-
-
 

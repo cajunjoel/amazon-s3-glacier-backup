@@ -1,4 +1,5 @@
 # amazon-s3-glacier-backup
+
 A script to use Amazon Glacier and tar incremental backups for long term storage of stuff. 
 
 # Requirements
@@ -8,17 +9,64 @@ Install this from GitHub for your system and configure for your Amazon S3 Glacie
 https://github.com/uskudnik/amazon-glacier-cmd-interface
 
 ## GNU Privacy Guard
-Install with Apt or Yum or whatever
-https://gnupg.org/
+Install with Apt or Yum or whatever https://gnupg.org/
 
 # Setup
-Copy the `envvars.sample` file to `envvars` and edit the new file to set the following variables for your system
-* SOURCE_DIR
-* WORKING_DIR
-* DIRS
-* PASSWD
+Copy the `glacier-backup.conf.dist` file to `glacier-backup.conf` and edit the new file to set the following:
+* GPG_PASSWORD
+* BACKUP_PATH
+* WORKING_PATH
 
 # Usage
 `/bin/bash glacier-backup` 
 
 That's it!
+
+# What it really does
+
+This command uses tar, tar\ listings, and glacier-cmd to back up one or more directories creating full 
+backups at first and incremental backups after that. The process is as follows:
+
+Each of configured BACKUP_PATH is processed individually and separately from the other configured paths.
+
+The last component of the path is used to create a [tar incremental metadata file](https://www.gnu.org/software/tar/manual/html_chapter/tar_5.html#SEC96) 
+as well as a vault at Amazon S3 Glacier. See "Known Bugs and limitations" below for more information.
+
+After validation, the script checks for the presence of a tar incremental metadata file for the given source. 
+
+If the metadata file is missing, tar is used to back up everything in the directory.
+
+If the metadata file is present, tar is used to only back up that which changed. Due to the nature of the incremental
+backup, added, changed, *and* deleted files will be incorporated into the tar file.
+
+The resulting tar file is uploaded to Amazon S3 Glacier.
+
+The results of the upload are saved to a log file that should not be removed. If it is lost, however, it can be recovered. 
+In all cases, the tar incremental metadata file should be preseved, but a loss of them still means that recover is possible,
+with the loss of deletions. (That is, deleted files will persist after a full restore.)
+
+# Restoring Files
+
+To restore. Download everything from amazon Glacier. Be careful of pricing. For large things, this can get expensive.
+
+$ gpg -d --passphrase=$PASSWD Test-FULL.tgz.gpg
+$ gpg -d --passphrase=$PASSWD Test-1.tgz.gpg
+$ gpg -d --passphrase=$PASSWD Test-2.tgz.gpg
+
+$ tar fxz /mnt/data/Backups/Test-FULL.tgz --listed-incremental=/dev/null
+$ tar fxz /mnt/data/Backups/Test-1.tgz --listed-incremental=/dev/null
+$ tar fxz /mnt/data/Backups/Test-2.tgz --listed-incremental=/dev/null
+
+And pray.
+
+# Known Bugs and limitations
+
+* If two BACKUP_PATHs have the same directory name, they will collide and cause awful unepxected results. 
+
+For example, this will cause unexpected results.
+
+    BACKUP_PATH=/home/glaciertest/files/mobile-phone/photos
+    BACKUP_PATH=/data/photography/raw/photos 
+
+
+
